@@ -29,13 +29,21 @@ def init_prompt(prompt_name: str, prompt_template: str):
 
 
 FORMAT_TRANSCRIPT_PROMPT = """
-You are a clinical documentation specialist.  
-Your task is to transform the raw conversation below into a concise, medically‑professional note that meets outpatient legal‑charting standards.
-
-TRANSCRIPT: {transcript}
-
-USER FORMATTING PREFERENCES:
+# CONTEXT
+====== USER FORMATTING PREFERENCES ======
+```
 {memories}
+```
+
+====== TRANSCRIPT TO PROCESS ======
+```
+{transcript}
+```
+
+# TASK
+You are a clinical documentation specialist working with medical transcripts.
+Transform the transcript above into a professional medical note that follows the user's formatting preferences.
+
 
 FORMAT YOUR RESPONSE EXACTLY AS FOLLOWS
 (use the headings and indentation verbatim; replace bracketed text with extracted or inferred content):
@@ -87,18 +95,26 @@ IMPORTANT - PERSONALIZATION INSTRUCTIONS:
 
 
 CREATE_MEMORY_PROMPT = """
-# === MEMORY-CURATOR PROMPT =========================================
-You are a memory-curation assistant.  
-Inputs:
-• llm_version - the raw transcript summary produced by the LLM  
-• user_version - the transcript after the user's edits  
-• user_memory - the current store of what we already know about the user's
-                formatting & content preferences (may be empty)
+# CONTEXT
+====== ORIGINAL AI VERSION ======
+```
+{llm_version}
+```
 
-Goal: Decide whether a **new memory** should be written, and if so, return a
-JSON object with the key "memory_to_write" containing concise, evergreen
-information that will improve future responses.  
-If no useful memory should be written, return a JSON with memory_to_write set to false.
+====== USER-EDITED VERSION ======
+```
+{user_version}
+```
+
+====== EXISTING USER PREFERENCES ======
+```
+{user_memory}
+```
+
+# TASK
+You are a memory-curation assistant that identifies and saves user formatting preferences.
+Analyze the differences between the original AI version and the user-edited version above.
+Extract meaningful formatting preferences while avoiding duplicates with existing preferences.
 
 ---------------------------------------------------------------------
 1. Identify **editorial deltas** – concrete, recurring changes the user made
@@ -108,37 +124,56 @@ If no useful memory should be written, return a JSON with memory_to_write set to
    • Terminology (e.g., medical jargon retained, abbreviations expanded)
    • Detail level (e.g., bullet length, inclusion/exclusion of vitals)
 
-2. Compare each delta with user_memory.  
-   • If the preference already exists in memory (same wording or meaning),
-     ignore it.  
-   • If it contradicts existing memory (user changed their mind), **update**
-     the memory: overwrite the outdated piece with the new preference.  
-   • If it's a genuinely new, recurring preference, prepare to add it.
+2. **CAREFULLY COMPARE** each delta with existing user_memory:  
+   • If the preference **ALREADY EXISTS** in memory (even with different wording but SAME SEMANTIC MEANING),
+     DO NOT create a new memory. STRICT DUPLICATE AVOIDANCE is essential.
+   • If the new preference **CONTRADICTS** an existing memory (suggesting the user changed their mind),
+     return a memory that UPDATES and clearly replaces the outdated preference.
+   • **ONLY** consider it a new memory if it represents a COMPLETELY NEW formatting preference
+     not semantically covered by ANY existing memory.
 
-3. Write NEW memory only when:  
-   • It reflects a *stable* editing habit (likely to apply in future cases),
-     **and**  
-   • It will help the LLM reduce future user edits.
+3. Write NEW memory ONLY when ALL of these conditions are met:  
+   • It reflects a *stable*, *consistent* editing pattern (not a one-time or contextual edit)
+   • It will SIGNIFICANTLY help reduce future user edits
+   • It is DIFFERENT ENOUGH from existing memories to warrant a new entry
+   • The pattern is GENERALIZABLE across different types of medical notes
 
 4. When writing memory, keep it:  
    • **Short** (≤ 1 sentence)  
    • **Evergreen** (won't expire quickly)  
-   • **User-centric** ("Ted Zhao prefers…")
+   • **User-centric** ("The user prefers...")  
+   • **Specific** to formatting style, not content
+
+   GOOD MEMORY EXAMPLES:
+   - "The user prefers medical notes in narrative format rather than tables."
+   - "The user prefers bullet points for vital signs instead of paragraph format."
+   - "The user prefers section headers to be uppercase and bold."
+   
+   BAD MEMORY EXAMPLES (TOO VAGUE):
+   - "The user likes a different style." (not specific enough)
+   - "The user edited the content." (about content, not formatting)
+   - "The user likes to make edits." (not actionable)
 
 5. Response format:  
-   • return Json object with key "memory_to_write" containing concise, evergreen
-     information that will improve future responses.
-   • If no new memory should be written, return a JSON with memory_to_write set to false.
-   • Do not include any sensitive information in the memory, such as patient names, phone numbers, etc.    
+   • Return a JSON object with key "memory_to_write" containing EXACTLY ONE concise, 
+     evergreen formatting preference that will improve future responses.
+   • If no new memory should be written, ALWAYS return: {"memory_to_write": false}
+   • NEVER include any sensitive information (patient names, phone numbers, etc.)
+   • Begin each memory with "The user prefers..." to maintain consistency
+   • Focus on the FORMATTING PATTERN, not the specific content of the note
    ---------------------------------------------------------------------
 
-# The context
+# OUTPUT REQUIREMENTS
 
-llm_version: {llm_version}
+Provide your analysis as a JSON object with this structure:
+```json
+{
+  "memory_to_write": "<one concise formatting preference>" OR false
+}
+```
 
-user_version: {user_version}
-
-user_memory: {user_memory}
+If you identify a new formatting preference, include it as a string.
+If no new preference should be saved, use the boolean value `false` (not a string).
 """
 
 
