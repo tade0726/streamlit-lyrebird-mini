@@ -1,7 +1,4 @@
-import asyncio
-import difflib
 import os
-import tempfile
 from datetime import datetime
 
 import pyperclip
@@ -13,8 +10,7 @@ from supabase import Client, create_client
 from app.openai_functions import audio_to_text
 from app.openai_functions import create_memory as create_memory_prompt
 from app.openai_functions import text_to_format
-from app.orm import Memory, init_db
-from app.prompts import init_prompts
+from app.orm import init_db
 
 # init supabase
 supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
