@@ -118,37 +118,11 @@ If no useful memory should be written, return a JSON with memory_to_write set to
    • **User-centric** ("Ted Zhao prefers…")
 
 5. Response format:  
-   • If adding/updating memory, return:  
-     {
-       "memory_to_write": "<one concise sentence capturing the preference>"
-     }  
-   • Otherwise return:  
-     {
-       "memory_to_write": false
-     }
----------------------------------------------------------------------
-
-# Example
-
-llm_version (excerpt):
-```
-### Clinical Note — markdown table
-| Section | Content | …
-```
-
-user_version (excerpt):
-```
-```text
-### Clinical Encounter Report — Revised Version
-… narrative paragraphs inside a code block …
-```
-
-user_memory (excerpt):
-• Ted Zhao prefers medical transcripts formatted as narrative reports (in code blocks) rather than markdown tables.
-
-→ Delta "converted table ➜ narrative code block" already in memory → curator returns **NO_NEW_MEMORY**.
-
-=====================================================================
+   • return Json object with key "memory_to_write" containing concise, evergreen
+     information that will improve future responses.
+   • If no new memory should be written, return a JSON with memory_to_write set to false.
+   • Do not include any sensitive information in the memory, such as patient names, phone numbers, etc.    
+   ---------------------------------------------------------------------
 
 # The context
 

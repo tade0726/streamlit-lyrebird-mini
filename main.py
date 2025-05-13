@@ -116,17 +116,18 @@ def get_memories(user_email):
         return []
 
 
-def get_user_memories(user_email):
+def get_user_memories(user_email, force_refresh=False):
     """Helper function to get user memories from session state or database.
 
     Args:
         user_email: The email of the user
+        force_refresh: Force a refresh from the database
 
     Returns:
         List of user memory strings
     """
-    # Initialize user memories if they don't exist in session state
-    if "user_memories" not in st.session_state:
+    # Force refresh from database if requested or if memories don't exist in session state
+    if force_refresh or "user_memories" not in st.session_state:
         st.session_state.user_memories = get_memories(user_email)
 
     # Return the memories (empty list if none exist)
@@ -143,33 +144,47 @@ def main_app(user_email):
         st.session_state.transcript = ""
     if "direct_input" not in st.session_state:
         st.session_state.direct_input = ""
-    if "tab_selection" not in st.session_state:
-        st.session_state.tab_selection = 0  # Default to first tab
+    if "memory_refreshed" not in st.session_state:
+        st.session_state.memory_refreshed = False
 
-    # Get user memories
-    user_memories = get_user_memories(user_email)
+    # Only load memories from the database once on page load or when explicitly refreshed
+    if not st.session_state.memory_refreshed:
+        # Get user memories once
+        user_memories = get_user_memories(user_email)
+        st.session_state.memory_refreshed = True
+    else:
+        # Use cached memories from session state
+        user_memories = (
+            st.session_state.user_memories
+            if "user_memories" in st.session_state
+            else []
+        )
 
     # Display user memories in the sidebar
     if user_memories:
         with st.sidebar.expander(
-            f"Your Formatting Preferences ({len(user_memories)})", expanded=False
+            f"Your Formatting Preferences ({len(user_memories)})", expanded=True
         ):
             for i, mem in enumerate(user_memories):
                 st.write(f"{i+1}. {mem}")
     else:
         st.sidebar.info(
-            "No formatting preferences saved yet. Edit formatted text to create preferences."
+            "No formatting preferences saved yet. Use the Memory tab to create preferences."
         )
 
-    # Create tabs with the selected tab active
-    tab_names = ["🎙️ Audio Transcription", "✏️ Text Formatting"]
+    # Create tabs
+    tab_names = ["🎙️ Transcribe", "✏️ Format", "🧠 Memory"]
     tabs = st.tabs(tab_names)
-    audio_tab = tabs[0]
-    text_tab = tabs[1]
+    transcribe_tab = tabs[0]
+    format_tab = tabs[1]
+    memory_tab = tabs[2]
 
     # Tab 1: Audio Recording and Transcription Only
-    with audio_tab:
-        st.subheader("Record Audio for Transcription")
+    with transcribe_tab:
+        st.subheader("Audio Transcription")
+        st.write(
+            "Record audio to transcribe it. The transcript can be copied but not formatted in this tab."
+        )
 
         # Audio recorder component
         audio_dict = mic_recorder(
@@ -187,171 +202,256 @@ def main_app(user_email):
                 transcript = audio_to_text(client, audio_value)
                 st.session_state.transcript = transcript
 
-        # Format transcript
+        # Display transcript
         if st.session_state.transcript:
-            with st.spinner("Formatting transcript..."):
-                # Format the transcript with user memories
-                formatted_transcript = text_to_format(
-                    client, st.session_state.transcript, memories=user_memories
-                )
-                st.session_state.formatted_transcript = formatted_transcript
+            st.subheader("Transcript")
+            st.text_area(
+                "Raw Transcript:",
+                value=st.session_state.transcript,
+                height=300,
+                key="transcript_text",
+            )
 
-        # Always display the text area for transcript
-        st.subheader("Transcription Result")
-
-        # Display the raw transcript (always show the text area)
-        raw_transcript = st.text_area(
-            "Raw transcript:",
-            value=(
-                st.session_state.transcript if "transcript" in st.session_state else ""
-            ),
-            height=200,
-            key="raw_transcript_area",
-            placeholder="Your transcription will appear here after recording. You can also type or paste text here directly.",
-        )
-
-        # Store any edits to the raw transcript
-        st.session_state.transcript = raw_transcript
-
-        # Add buttons in columns for better layout
-        col1, col2 = st.columns(2)
-
-        # Only show action buttons if there's text in the transcript
-        if st.session_state.transcript.strip():
+            col1, col2 = st.columns(2)
             # Copy button for raw transcript
             with col1:
                 if st.button("Copy to Clipboard", key="audio_copy"):
                     pyperclip.copy(st.session_state.transcript)
                     st.success("Transcript copied to clipboard!")
 
-            # Send to formatting button
+            # Clear button
             with col2:
-                if st.button("Send to Formatting Tab", key="send_to_format"):
-                    # Store transcript in the direct input field for the formatting tab
-                    st.session_state.direct_input = st.session_state.transcript
-                    # Set the tab selection to the formatting tab (index 1)
-                    st.session_state.tab_selection = 1
+                if st.button("Clear Transcript", key="clear_transcript"):
+                    st.session_state.transcript = ""
                     st.rerun()
         else:
-            st.info("Record audio or type directly in the text area above.")
+            st.info("Record audio to see the transcript here.")
 
     # Tab 2: Text Formatting Only
-    with text_tab:
-        st.subheader("Direct Text Formatting")
-        st.write("Enter your text below to format it without recording audio.")
+    with format_tab:
+        st.subheader("Text Formatting")
+        st.write("Enter medical text to format it according to your saved preferences.")
 
-        # Input text area for direct text input
-        direct_input = st.text_area(
-            "Enter your text:",
-            value=st.session_state.direct_input,
-            height=250,  # Increased height for better writing experience
-            key="direct_input_area",
-            placeholder="Enter or paste your text here for formatting...",
+        # Input text area for text to format
+        text_to_format_input = st.text_area(
+            "Enter text to format:",
+            height=250,
+            key="format_input_area",
+            placeholder="Paste your medical transcript here for formatting...",
         )
 
         # Format button
-        if st.button("Format Text"):
-            if direct_input.strip():
+        if st.button("Format Text", key="format_button"):
+            if text_to_format_input.strip():
                 with st.spinner("Formatting text..."):
-                    st.session_state.direct_input = direct_input
-
-                    # Format the text with user memories
-                    formatted_text = text_to_format(
-                        client, direct_input, memories=user_memories
+                    # Use the memories from session state to avoid unnecessary database calls
+                    formatted_result = text_to_format(
+                        client,
+                        text_to_format_input,
+                        memories=(
+                            st.session_state.user_memories
+                            if "user_memories" in st.session_state
+                            else []
+                        ),
                     )
-                    st.session_state.formatted_direct_text = formatted_text
+                    st.session_state.formatted_result = formatted_result
             else:
                 st.warning("Please enter some text to format.")
 
         # Display formatted result
-        if "formatted_direct_text" in st.session_state:
+        if "formatted_result" in st.session_state and st.session_state.formatted_result:
             st.subheader("Formatted Result")
 
-            # Display the original AI-formatted text (read-only)
-            st.text_area(
-                "AI-Formatted text (original):",
-                value=st.session_state.formatted_direct_text,
-                height=500,  # Increased height
-                key="original_formatted_text",
-                disabled=False,
+            formatted_text = st.text_area(
+                "Formatted text:",
+                value=st.session_state.formatted_result,
+                height=500,
+                key="formatted_result_area",
             )
 
-            # Initialize the user-editable version if it doesn't exist
-            if "user_edited_direct_text" not in st.session_state:
-                st.session_state.user_edited_direct_text = (
-                    st.session_state.formatted_direct_text
-                )
+            # Copy button for formatted text
+            if st.button("Copy Formatted Text", key="copy_formatted"):
+                pyperclip.copy(st.session_state.formatted_result)
+                st.success("Formatted text copied to clipboard!")
 
-            # Editable version for user modifications
-            user_edited_text = st.text_area(
-                "Edit formatted text:",
-                value=st.session_state.user_edited_direct_text,
-                height=1200,  # Substantially increased height for better editing
-                key="user_edited_direct_text_area",
+            # Clear button
+            if st.button("Clear All", key="clear_format"):
+                if "formatted_result" in st.session_state:
+                    st.session_state.formatted_result = ""
+                st.rerun()
+
+    # Tab 3: Memory Creation
+    with memory_tab:
+        st.subheader("Create Formatting Preferences")
+        st.write(
+            "This tab allows you to create memories (formatting preferences) from differences between original and edited text."
+        )
+
+        with st.expander("How Memory Creation Works", expanded=False):
+            st.markdown(
+                """
+            ### Memory Creation Process
+            1. Enter two versions of the same text: the original AI-formatted version and your edited version
+            2. The system analyzes the differences between them
+            3. If it identifies a pattern in your edits, it will create a "memory" of your preference
+            4. This preference will be applied to future formatting tasks
+            """
             )
 
-            # Store the user's edits
-            st.session_state.user_edited_direct_text = user_edited_text
+        # Initialize session state for memory text inputs if they don't exist
+        if "memory_original_text" not in st.session_state:
+            st.session_state.memory_original_text = ""
+        if "memory_edited_text" not in st.session_state:
+            st.session_state.memory_edited_text = ""
 
-            # Copy button for user-edited text
-            if st.button("Copy to Clipboard", key="text_copy"):
-                pyperclip.copy(st.session_state.user_edited_direct_text)
-                st.success("Edited text copied to clipboard!")
+        # Original AI text
+        original_text = st.text_area(
+            "Original AI-Formatted Text:",
+            value=st.session_state.memory_original_text,
+            height=250,
+            key="memory_original_text_area",
+            placeholder="Paste the original AI-formatted text here...",
+        )
+        st.session_state.memory_original_text = original_text
 
-                # create memory, and save to db
+        # User-edited version
+        edited_text = st.text_area(
+            "Your Edited Version:",
+            value=st.session_state.memory_edited_text,
+            height=250,
+            key="memory_edited_text_area",
+            placeholder="Paste your edited version here (with your preferred formatting)...",
+        )
+        st.session_state.memory_edited_text = edited_text
 
-                if "formatted_direct_text" in st.session_state:
-                    original = st.session_state.formatted_direct_text
-                    edited = st.session_state.user_edited_direct_text
+        # Sample text buttons for quick population
+        st.write("Need an example? Try one of these:")
+        col1, col2 = st.columns(2)
 
-                    if original == edited:
-                        st.warning(
-                            "Original and edited text are the same. No memory created."
+        with col1:
+            if st.button("Sample Original (Table Format)", key="sample_original"):
+                sample_original = """### Clinical Note — Formatted as a Table
+| Section | Content |
+|---------|----------|
+| Patient Info | Jane Doe, 45yo female |
+| Vital Signs | BP 120/80, HR 72, Temp 98.6°F |
+| Assessment | 1. Hypertension - controlled\n2. Type 2 Diabetes - uncontrolled |
+| Plan | Continue current medications, follow-up in 2 weeks |"""
+                st.session_state.memory_original_text = sample_original
+                st.rerun()
+
+        with col2:
+            if st.button("Sample Edited (Narrative)", key="sample_edited"):
+                sample_edited = """```
+### Clinical Encounter Report
+
+PATIENT: Jane Doe, 45yo female
+
+VITAL SIGNS:
+- BP: 120/80
+- HR: 72
+- Temperature: 98.6°F
+
+ASSESSMENT:
+1. Hypertension - controlled
+2. Type 2 Diabetes - uncontrolled
+
+PLAN:
+- Continue current medications
+- Follow-up in 2 weeks
+```"""
+                st.session_state.memory_edited_text = sample_edited
+                st.rerun()
+
+        # Create Memory button
+        if st.button("Create Memory", key="create_memory"):
+            if original_text.strip() and edited_text.strip():
+                if original_text == edited_text:
+                    st.warning(
+                        "Original and edited texts are identical. Please make edits to create a memory."
+                    )
+                else:
+                    with st.spinner("Analyzing differences and creating memory..."):
+                        # Use cached memories from session state
+                        current_memories = (
+                            st.session_state.user_memories
+                            if "user_memories" in st.session_state
+                            else []
                         )
 
-                    else:
-                        # Get existing memories through the helper function
-                        user_memories = get_user_memories(user_email)
-
-                        # Create a new memory using the AI
+                        # Create a new memory
                         memory_result = create_memory_prompt(
-                            client, original, edited, user_memories
+                            client, original_text, edited_text, current_memories
                         )
 
-                        # Check if there's a new memory to save
                         if (
                             memory_result
                             and "memory_to_write" in memory_result
                             and memory_result["memory_to_write"]
                         ):
-                            # Save the new memory to the database
                             memory_text = memory_result["memory_to_write"]
                             save_success = save_memory(user_email, memory_text)
 
                             if save_success:
-                                st.success(
-                                    "New formatting preference saved: " + memory_text
-                                )
-
-                            # Add the new memory to the session state (at the beginning)
-                            if "user_memories" in st.session_state:
-                                st.session_state.user_memories.insert(0, memory_text)
+                                st.success(f"**New preference saved:** {memory_text}")
+                                # Add the new memory to the session state
+                                if "user_memories" in st.session_state:
+                                    # Add to beginning of list for visibility
+                                    st.session_state.user_memories.insert(
+                                        0, memory_text
+                                    )
+                                else:
+                                    st.session_state.user_memories = [memory_text]
+                                # Force refresh the UI
+                                st.session_state.memory_refreshed = True
+                                st.rerun()
                             else:
-                                st.session_state.user_memories = [memory_text]
-
-                            # Force refresh to update the sidebar
-                            st.rerun()
-
-            # Option to reset to original formatted text
-            if st.button("Reset to Original", key="reset_text"):
-                st.session_state.user_edited_direct_text = (
-                    st.session_state.formatted_direct_text
+                                st.error("Failed to save preference to database.")
+                        else:
+                            st.info(
+                                "No meaningful formatting preference detected in your edits."
+                            )
+            else:
+                st.warning(
+                    "Please provide both the original text and your edited version."
                 )
+
+        # Display current memories with delete option
+        st.subheader("Your Saved Preferences")
+        # Use cached memories from session state instead of querying again
+        current_preferences = (
+            st.session_state.user_memories
+            if "user_memories" in st.session_state
+            else []
+        )
+
+        if current_preferences:
+            for i, memory in enumerate(current_preferences):
+                col1, col2 = st.columns([10, 1])
+                with col1:
+                    st.write(f"{i+1}. {memory}")
+
+            # Option to refresh memories from database
+            if st.button("Refresh Preferences", key="refresh_memories"):
+                # Force refresh from database
+                st.session_state.user_memories = get_memories(user_email)
+                st.session_state.memory_refreshed = True
+                st.success("Preferences refreshed from database")
                 st.rerun()
 
-    # Logout button at the bottom of the page (outside the tabs)
-    if st.button("Logout"):
-        sign_out()
+            # Option to clear all memories
+            if st.button("Clear All Preferences", key="clear_all_memories"):
+                # Not implementing actual deletion here - would need additional functionality
+                st.warning(
+                    "This would delete all your saved preferences (not implemented in this demo)."
+                )
+        else:
+            st.info(
+                "You don't have any saved preferences yet. Create some using the form above."
+            )
+
+    # Sidebar logout button
+    st.sidebar.button("Sign Out", on_click=sign_out, key="sign_out_button")
 
 
 def auth_screen():
@@ -375,12 +475,10 @@ def auth_screen():
 
 if __name__ == "__main__":
 
-    # if "user_email" not in st.session_state:
-    #     st.session_state.user_email = None
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
 
-    # if st.session_state.user_email:
-    #     main_app(st.session_state.user_email)
-    # else:
-    #     auth_screen()
-
-    main_app("zp4work@gmail.com")
+    if st.session_state.user_email:
+        main_app(st.session_state.user_email)
+    else:
+        auth_screen()
