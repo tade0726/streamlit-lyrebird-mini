@@ -6,7 +6,6 @@ from datetime import datetime
 
 import pyperclip
 import streamlit as st
-from dotenv import load_dotenv
 from openai import OpenAI
 from streamlit_mic_recorder import mic_recorder
 from supabase import Client, create_client
@@ -17,11 +16,8 @@ from app.openai_functions import text_to_format
 from app.orm import Memory, init_db
 from app.prompts import init_prompts
 
-load_dotenv()
-supabase_url = os.getenv("SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(supabase_url, supabase_key)
-
+# init supabase
+supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 # init tables
 init_db()

@@ -7,8 +7,15 @@ from langchain import hub as prompts
 from langchain_core.prompts import ChatPromptTemplate
 from langsmith.utils import LangSmithConflictError
 
+import os
+import streamlit as st
 
 def init_prompt(prompt_name: str, prompt_template: str):
+
+    # init env variables from st.secrets, put them in os.environ
+    os.environ["LANGSMITH_ENDPOINT"] = st.secrets["LANGSMITH_ENDPOINT"]
+    os.environ["LANGSMITH_API_KEY"] = st.secrets["LANGSMITH_API_KEY"]
+    os.environ["LANGSMITH_PROJECT"] = st.secrets["LANGSMITH_PROJECT"]
 
     prompt = ChatPromptTemplate.from_template(prompt_template)
 

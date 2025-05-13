@@ -1,12 +1,11 @@
 import os
 from datetime import datetime
 
-from dotenv import load_dotenv
+import streamlit as st
 from sqlalchemy import DateTime, ForeignKey, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-load_dotenv()
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
+SUPABASE_DB_URL = st.secrets["SUPABASE_DB_URL"]
 
 
 class Base(DeclarativeBase):

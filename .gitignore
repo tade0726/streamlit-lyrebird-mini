@@ -12,4 +12,5 @@ wheels/
 # dot env
 .env
 
-# 
+# streamlit secrets
+.streamlit
